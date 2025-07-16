@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lead Enrichment Automation</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #0056b3; margin-bottom: 30px; }
+        .upload-section, .status-section { margin-bottom: 25px; padding: 20px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; }
+        input[type="file"] { margin-bottom: 15px; display: block; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }
+        button:hover { background-color: #0056b3; }
+        .progress-bar-container { width: 100%; background-color: #e0e0e0; border-radius: 5px; margin-top: 15px; }
+        .progress-bar { width: 0%; height: 25px; background-color: #28a745; border-radius: 5px; text-align: center; line-height: 25px; color: white; transition: width 0.4s ease-in-out; }
+        .status-message { margin-top: 10px; font-weight: bold; }
+        .error-message { color: red; margin-top: 10px; font-weight: bold; }
+        .success-message { color: green; margin-top: 10px; font-weight: bold; }
+        .download-link { display: none; text-align: center; margin-top: 20px; }
+        .download-link a { background-color: #28a745; color: white; padding: 12px 20px; border-radius: 5px; text-decoration: none; display: inline-block; }
+        .download-link a:hover { background-color: #218838; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Lead Enrichment Automation</h1>
+
+        <div class="upload-section">
+            <h2>Upload Lead CSV</h2>
+            <input type="file" id="csvFile" accept=".csv">
+            <button id="uploadButton">Upload and Process</button>
+        </div>
+
+        <div class="status-section">
+            <h2>Processing Status</h2>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar">0%</div>
+            </div>
+            <p class="status-message" id="statusMessage">Awaiting file upload...</p>
+            <p class="error-message" id="errorMessage" style="display:none;"></p>
+            <p class="success-message" id="successMessage" style="display:none;"></p>
+            <div class="download-link" id="downloadLinkSection">
+                <a href="#" id="downloadLink">Download Enriched CSV</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadButton = document.getElementById('uploadButton');
+        const csvFileInput = document.getElementById('csvFile');
+        const progressBar = document.getElementById('progressBar');
+        const statusMessage = document.getElementById('statusMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        const downloadLinkSection = document.getElementById('downloadLinkSection');
+        const downloadLink = document.getElementById('downloadLink');
+
+        let currentSessionId = null;
+        let statusInterval = null;
+
+        uploadButton.addEventListener('click', async () => {
+            const file = csvFileInput.files[0];
+            if (!file) {
+                alert('Please select a CSV file first.');
+                return;
+            }
+
+            // Reset UI
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+            statusMessage.textContent = 'Uploading...';
+            errorMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+            downloadLinkSection.style.display = 'none';
+            downloadLink.href = '#';
+            uploadButton.disabled = true; // Disable button during upload/processing
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const uploadResponse = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const uploadData = await uploadResponse.json();
+
+                if (uploadResponse.ok) {
+                    currentSessionId = uploadData.session_id;
+                    statusMessage.textContent = `File "${uploadData.filename}" uploaded. Starting processing...`;
+                    startPollingStatus(currentSessionId);
+                } else {
+                    errorMessage.textContent = `Upload failed: ${uploadData.message}`;
+                    errorMessage.style.display = 'block';
+                    uploadButton.disabled = false;
+                }
+            } catch (error) {
+                errorMessage.textContent = `Network error during upload: ${error.message}`;
+                errorMessage.style.display = 'block';
+                uploadButton.disabled = false;
+            }
+        });
+
+        function startPollingStatus(sessionId) {
+            if (statusInterval) {
+                clearInterval(statusInterval);
+            }
+            statusInterval = setInterval(async () => {
+                try {
+                    const statusResponse = await fetch(`/status/${sessionId}`);
+                    const statusData = await statusResponse.json();
+
+                    progressBar.style.width = `${statusData.progress}%`;
+                    progressBar.textContent = `${statusData.progress}%`;
+                    statusMessage.textContent = statusData.status;
+
+                    if (statusData.error) {
+                        errorMessage.textContent = `Error: ${statusData.error}`;
+                        errorMessage.style.display = 'block';
+                        clearInterval(statusInterval);
+                        uploadButton.disabled = false; // Re-enable button on error
+                    } else if (statusData.status === "Completed!") {
+                        successMessage.textContent = 'Processing completed successfully!';
+                        successMessage.style.display = 'block';
+                        downloadLink.href = `/download/${statusData.output_file}`;
+                        downloadLinkSection.style.display = 'block';
+                        clearInterval(statusInterval);
+                        uploadButton.disabled = false; // Re-enable button on completion
+                    } else if (statusData.status === "Failed") {
+                        errorMessage.textContent = `Processing failed: ${statusData.error || 'Unknown error'}`;
+                        errorMessage.style.display = 'block';
+                        clearInterval(statusInterval);
+                        uploadButton.disabled = false; // Re-enable button on failure
+                    }
+
+                } catch (error) {
+                    errorMessage.textContent = `Error polling status: ${error.message}`;
+                    errorMessage.style.display = 'block';
+                    clearInterval(statusInterval);
+                    uploadButton.disabled = false; // Re-enable button on polling error
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+    </script>
+</body>
+</html>
