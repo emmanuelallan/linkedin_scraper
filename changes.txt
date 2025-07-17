@@ -1,0 +1,4 @@
+- variables for frequency, prompt
+- linkedin account for the user
+- work without titles - seacrh for links through rows
+- 

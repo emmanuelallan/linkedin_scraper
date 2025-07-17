@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  lead-enrichment:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
+    volumes:
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - lead-enrichment
+    restart: unless-stopped
